@@ -43,6 +43,13 @@ if [ -f "$EXT_CONFIG" ] && grep -q "httpfs" "$EXT_CONFIG"; then
   echo "--- httpfs detected: will build OpenSSL + libcurl for each target ---"
 fi
 
+# Check if spatial is in the extension config (needs GDAL/PROJ/GEOS via vcpkg)
+NEEDS_SPATIAL=false
+if [ -f "$EXT_CONFIG" ] && grep -q "duckdb_extension_load(spatial" "$EXT_CONFIG"; then
+  NEEDS_SPATIAL=true
+  echo "--- spatial detected: will build GDAL/PROJ/GEOS for each target ---"
+fi
+
 # Invalidate cached builds if extension config changed
 EXT_CONFIG_HASH=$(md5 -q "${EXT_CONFIG}" 2>/dev/null || md5sum "${EXT_CONFIG}" 2>/dev/null | cut -d' ' -f1 || echo "none")
 for BUILD_SUBDIR in "build-ios-iphoneos-arm64" "build-ios-iphonesimulator-arm64"; do
@@ -102,12 +109,36 @@ build_arch() {
     )
   fi
 
+  # Build GDAL/PROJ/GEOS etc. if spatial is enabled
+  local SPATIAL_CMAKE_FLAGS=()
+  if [ "$NEEDS_SPATIAL" = true ]; then
+    echo "   Building spatial deps (GDAL/PROJ/GEOS) for ios-${MAPPED_ARCH}..."
+    "${SCRIPT_DIR}/build-spatial-deps.sh" ios "${MAPPED_ARCH}"
+    local SPATIAL_PREFIX="${REPO_DIR}/vendor/spatial/ios-${MAPPED_ARCH}/prefix"
+    # CMAKE_PREFIX_PATH lets duckdb-spatial's find_package(GDAL/PROJ/GEOS/...)
+    # resolve to the vcpkg-built static libs. Network functionality is off on
+    # mobile (matches upstream's vcpkg.json platform guards — no curl/openssl).
+    # CMAKE_SYSTEM_PROCESSOR must match what vcpkg used (aarch64, not arm64):
+    # PROJ's config-version check rejects the package on any mismatch.
+    local VCPKG_PROCESSOR="${ARCH}"
+    if [ "${ARCH}" = "arm64" ]; then
+      VCPKG_PROCESSOR="aarch64"
+    fi
+    SPATIAL_CMAKE_FLAGS=(
+      -DCMAKE_PREFIX_PATH="${SPATIAL_PREFIX}"
+      -DCMAKE_FIND_ROOT_PATH="${SPATIAL_PREFIX}"
+      -DCMAKE_SYSTEM_PROCESSOR="${VCPKG_PROCESSOR}"
+      -DSPATIAL_USE_NETWORK=OFF
+    )
+  fi
+
   local SDK_PATH
   SDK_PATH="$(xcrun --sdk "${PLATFORM}" --show-sdk-path)"
 
   cmake -S "${DUCKDB_DIR}" -B "${FULL_BUILD_DIR}" -G "Unix Makefiles" \
     "${CMAKE_COMMON[@]}" \
     ${HTTPFS_CMAKE_FLAGS[@]+"${HTTPFS_CMAKE_FLAGS[@]}"} \
+    ${SPATIAL_CMAKE_FLAGS[@]+"${SPATIAL_CMAKE_FLAGS[@]}"} \
     -DCMAKE_SYSTEM_NAME=iOS \
     -DCMAKE_OSX_SYSROOT="${SDK_PATH}" \
     -DCMAKE_OSX_ARCHITECTURES="${ARCH}" \
@@ -123,6 +154,20 @@ build_arch() {
 
   # Find all .a files produced by the build
   while IFS= read -r -d '' lib; do
+    case "$lib" in
+      *_nosqlite3.a) continue ;;         # stale stripped copy from a previous run
+      *libduckdb_combined.a) continue ;; # our own output from a previous run
+    esac
+    if [ "$NEEDS_SPATIAL" = true ] && [ "$(basename "$lib")" = "libsqlite_scanner_extension.a" ]; then
+      # sqlite_scanner vendors its own sqlite3, which collides with the
+      # vcpkg-built sqlite3 that GDAL/PROJ link against. The vcpkg copy is
+      # built as a feature superset (see build-spatial-deps.sh), so strip the
+      # vendored copy and let everything resolve against the vcpkg one.
+      local stripped="${lib%.a}_nosqlite3.a"
+      cp -f "$lib" "$stripped"
+      ar d "$stripped" sqlite3.c.o
+      lib="$stripped"
+    fi
     ALL_LIBS+=("${lib}")
   done < <(find "${FULL_BUILD_DIR}" -name "*.a" -print0)
 
@@ -137,6 +182,14 @@ build_arch() {
         echo "WARNING: Expected vendor lib not found: ${vendor_lib}"
       fi
     done
+  fi
+
+  # Include vcpkg-built GDAL/PROJ/GEOS etc. static libs when spatial is enabled
+  if [ "$NEEDS_SPATIAL" = true ]; then
+    local SPATIAL_LIB_DIR="${REPO_DIR}/vendor/spatial/ios-${MAPPED_ARCH}/prefix/lib"
+    while IFS= read -r -d '' lib; do
+      ALL_LIBS+=("${lib}")
+    done < <(find "${SPATIAL_LIB_DIR}" -name "*.a" -print0)
   fi
 
   if [ ${#ALL_LIBS[@]} -eq 0 ]; then
@@ -177,10 +230,6 @@ cp -R "${BUILD_DIR}/DuckDB.xcframework" "${PACKAGE_DIR}/DuckDB.xcframework"
 
 # Step 5: Write extension metadata for podspec to read
 EXT_META="${PACKAGE_DIR}/.duckdb-extensions.json"
-if [ "$NEEDS_HTTPFS" = true ]; then
-  echo '{"httpfs":true}' > "$EXT_META"
-else
-  echo '{}' > "$EXT_META"
-fi
+printf '{"httpfs":%s,"spatial":%s}\n' "$NEEDS_HTTPFS" "$NEEDS_SPATIAL" > "$EXT_META"
 
 echo "=== DuckDB.xcframework created at ${PACKAGE_DIR}/DuckDB.xcframework ==="

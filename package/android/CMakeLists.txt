@@ -95,6 +95,68 @@ if(EXISTS "${EXT_CONFIG_PATH}")
   endif()
 endif()
 
+# Check if spatial is in the config — needs GDAL/PROJ/GEOS etc. built via vcpkg.
+if(EXISTS "${EXT_CONFIG_PATH}")
+  file(READ "${EXT_CONFIG_PATH}" _ext_config_content_spatial)
+  if(_ext_config_content_spatial MATCHES "duckdb_extension_load\\(spatial")
+    # Like httpfs, spatial's dependency chain is 64-bit only.
+    if(ANDROID_ABI STREQUAL "armeabi-v7a" OR ANDROID_ABI STREQUAL "x86")
+      message(WARNING "react-native-duckdb: spatial skipped for ${ANDROID_ABI} (32-bit not supported). spatial requires 64-bit ABIs (arm64-v8a, x86_64).")
+      # Strip spatial from extension config so DuckDB doesn't try to build it.
+      # Safe because configure-extensions.js regenerates this file each CMake invocation.
+      string(REGEX REPLACE "duckdb_extension_load\\(spatial[^\n]*\\)\n?" "" _ext_config_content_spatial "${_ext_config_content_spatial}")
+      file(WRITE "${EXT_CONFIG_PATH}" "${_ext_config_content_spatial}")
+    else()
+      message(STATUS "react-native-duckdb: spatial detected, building GDAL/PROJ/GEOS for ${ANDROID_ABI}")
+
+      # vcpkg needs the NDK path to cross-compile the dependencies
+      if(ANDROID_NDK_FOR_HTTPFS)
+        set(ENV{ANDROID_NDK_HOME} "${ANDROID_NDK_FOR_HTTPFS}")
+      endif()
+
+      execute_process(
+        COMMAND bash "${CMAKE_SOURCE_DIR}/../../scripts/build-spatial-deps.sh" android "${ANDROID_ABI}"
+        RESULT_VARIABLE _spatial_deps_result
+      )
+      if(NOT _spatial_deps_result EQUAL 0)
+        message(FATAL_ERROR "react-native-duckdb: Failed to build spatial dependencies (${ANDROID_ABI})")
+      endif()
+
+      # Let duckdb-spatial's find_package(GDAL/PROJ/GEOS/...) resolve to the
+      # vcpkg-built static libs. The NDK toolchain sets find-root modes to
+      # ONLY, so the prefix must also be added to CMAKE_FIND_ROOT_PATH.
+      set(_SPATIAL_PREFIX "${CMAKE_SOURCE_DIR}/../../vendor/spatial/android-${ANDROID_ABI}/prefix")
+      list(APPEND CMAKE_PREFIX_PATH "${_SPATIAL_PREFIX}")
+      list(APPEND CMAKE_FIND_ROOT_PATH "${_SPATIAL_PREFIX}")
+
+      # Network functionality is off on mobile (matches upstream's vcpkg.json
+      # platform guards — no curl/openssl on ios/android).
+      set(SPATIAL_USE_NETWORK OFF CACHE BOOL "" FORCE)
+
+      # Imported targets (GDAL::GDAL etc.) are directory-scoped: found inside
+      # the spatial subdirectory they would be invisible to our top-level
+      # RNDuckDB target, which links them transitively through
+      # spatial_extension. Find them here so they exist at top-level scope.
+      # (CMAKE_FIND_PACKAGE_TARGETS_GLOBAL needs CMake 3.24; AGP uses 3.22.)
+      find_package(ZLIB REQUIRED)
+      find_package(PROJ CONFIG REQUIRED)
+      find_package(GDAL CONFIG REQUIRED)
+      find_package(EXPAT REQUIRED)
+      find_package(unofficial-sqlite3 CONFIG REQUIRED)
+      find_package(GEOS REQUIRED)
+
+      # sqlite_scanner vendors its own sqlite3, which collides with the vcpkg
+      # sqlite3 that GDAL/PROJ need. The vcpkg copy is built as a feature
+      # superset (see build-spatial-deps.sh) — preload it whole-archive so the
+      # vendored member is never selected. Linked before duckdb_static below.
+      if(_ext_config_content_spatial MATCHES "duckdb_extension_load\\(sqlite_scanner")
+        set(_SPATIAL_SQLITE3_PRELOAD
+          "-Wl,--whole-archive" "${_SPATIAL_PREFIX}/lib/libsqlite3.a" "-Wl,--no-whole-archive")
+      endif()
+    endif()
+  endif()
+endif()
+
 # Check if VSS extension is in the config — needs aligned_alloc workaround on Android.
 # Android Bionic's aligned_alloc requires API level 28+, but we target API 24.
 # The usearch library (bundled in duckdb-vss) calls aligned_alloc directly.
@@ -156,6 +218,7 @@ find_library(LOG_LIB log)
 # Link DuckDB static library + extension libraries (same pattern as DuckDB shell)
 target_link_libraries(
   ${CMAKE_PROJECT_NAME}
+  ${_SPATIAL_SQLITE3_PRELOAD}
   duckdb_static
   ${LOG_LIB}
   android
@@ -163,6 +226,15 @@ target_link_libraries(
   ReactAndroid::jsi
 )
 link_extension_libraries(${CMAKE_PROJECT_NAME} PRIVATE)
+
+# GDAL's CMake config doesn't model libtiff's private static deps (they live
+# in pkg-config Libs.private) — link them explicitly after the extension libs.
+if(_SPATIAL_PREFIX)
+  target_link_libraries(${CMAKE_PROJECT_NAME}
+    "${_SPATIAL_PREFIX}/lib/libjpeg.a"
+    "${_SPATIAL_PREFIX}/lib/liblzma.a"
+  )
+endif()
 
 # Link vendor OpenSSL + libcurl static libs into our .so when httpfs is enabled.
 # DuckDB's httpfs extension references OpenSSL/curl symbols but doesn't link them

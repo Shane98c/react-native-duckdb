@@ -64,6 +64,7 @@ type DuckDBPluginProps = {
 | `httpfs` | Remote file access over HTTPS ([details](remote-data.md)) |
 | `fts` | BM25 full-text search ([details](fts.md)) |
 | `vss` | HNSW vector similarity search ([details](vss.md)) |
+| `spatial` | Geospatial types and functions ([details](spatial.md)) |
 | `autocomplete` | SQL autocomplete suggestions |
 | `tpch` | TPC-H benchmark data generator |
 | `tpcds` | TPC-DS benchmark data generator |
@@ -213,7 +214,7 @@ If you eject from Expo, the property files written by the plugin remain in your 
 The extension name is not in the valid list. Check for typos:
 
 ```
-Valid: core_functions, parquet, json, icu, sqlite_scanner, autocomplete, tpch, tpcds, delta, httpfs, fts, vss
+Valid: core_functions, parquet, json, icu, sqlite_scanner, autocomplete, tpch, tpcds, delta, httpfs, fts, vss, spatial
 ```
 
 ### Extensions not building after prebuild

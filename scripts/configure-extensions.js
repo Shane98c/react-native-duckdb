@@ -35,6 +35,15 @@ const OUT_OF_TREE_EXTENSIONS = {
     git_url: 'https://github.com/duckdb/duckdb-vss',
     git_tag: '4d07d6e3f6ce87013ae59a24b8d8c6740f2db307',
   },
+  spatial: {
+    // Pinned to the commit DuckDB's own CI builds against the duckdb submodule
+    // (duckdb/.github/config/extensions/spatial.cmake). When bumping, also
+    // update SPATIAL_COMMIT + VCPKG_COMMIT in scripts/build-spatial-deps.sh
+    // (VCPKG_COMMIT = builtin-baseline in duckdb-spatial's vcpkg.json).
+    git_url: 'https://github.com/duckdb/duckdb-spatial',
+    git_tag: 'f129b24b4ddd4d98cfc18f88be5a344a79040e7b',
+    include_dir: 'src/spatial',
+  },
 };
 
 const ALL_VALID = [...IN_TREE_EXTENSIONS, ...Object.keys(OUT_OF_TREE_EXTENSIONS)];

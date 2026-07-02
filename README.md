@@ -227,6 +227,23 @@ const similar = db.executeSync(`
 
 See [docs/vss.md](docs/vss.md) for distance metrics, use cases, and HNSW tuning.
 
+## Geospatial
+
+`GEOMETRY` columns, 100+ `ST_*` functions (GEOS), offline coordinate transforms (PROJ, embedded proj.db), and GeoJSON/Shapefile/GeoPackage file I/O (GDAL). Requires the `spatial` extension.
+
+```ts
+db.executeSync("LOAD 'spatial'")
+db.executeSync('CREATE TABLE places (name VARCHAR, geom GEOMETRY)')
+db.executeSync("INSERT INTO places VALUES ('office', ST_Point(11.087, 47.263))")
+
+const nearby = db.executeSync(`
+  SELECT name FROM places
+  WHERE ST_DWithin(geom, ST_Point($lon, $lat), 0.05)
+`)
+```
+
+See [docs/spatial.md](docs/spatial.md) for geometry operations, spatial joins, transforms, and file formats.
+
 ## Extensions
 
 Extensions are statically linked at build time. Configure in `package.json` (bare) or `app.json` (Expo):
@@ -249,6 +266,7 @@ Extensions are statically linked at build time. Configure in `package.json` (bar
 | `httpfs` | Remote file access over HTTPS |
 | `fts` | BM25 full-text search |
 | `vss` | HNSW vector similarity search |
+| `spatial` | Geospatial types, ST_* functions, file I/O |
 | `sqlite_scanner` | Read SQLite databases |
 | `icu` | Unicode collation and locale |
 | `delta` | Delta Lake table format |
@@ -301,6 +319,7 @@ These are complementary paradigms. Use SQLite-based libraries for your app's tra
 | [Database Location](docs/database-location.md) | Storage paths, iCloud/Auto Backup, platform defaults |
 | [Full-Text Search](docs/fts.md) | BM25 indexing, stemmers, field search, limitations |
 | [Vector Search](docs/vss.md) | HNSW indexes, distance metrics, RAG patterns |
+| [Geospatial](docs/spatial.md) | GEOMETRY type, spatial joins, transforms, GDAL file I/O |
 | [Remote Data](docs/remote-data.md) | httpfs, Hugging Face datasets, S3, TLS config |
 | [Expo Setup](docs/expo.md) | Config plugin, extension flow, migration guide |
 | [Bare Workflow](docs/bare-workflow.md) | iOS/Android setup without Expo |

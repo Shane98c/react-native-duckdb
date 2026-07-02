@@ -11,6 +11,7 @@
 | [Database Location](database-location.md) | Storage paths, iCloud/Auto Backup, platform defaults |
 | [Full-Text Search](fts.md) | BM25 indexing, 27 language stemmers, field-specific search, and limitations |
 | [Vector Search](vss.md) | HNSW indexes, distance metrics, on-device RAG patterns |
+| [Geospatial](spatial.md) | GEOMETRY type, ST_* functions, coordinate transforms, GDAL file I/O |
 | [Remote Data](remote-data.md) | httpfs extension, Hugging Face datasets, S3, TLS configuration |
 
 ## Reference

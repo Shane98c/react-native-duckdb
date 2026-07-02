@@ -82,6 +82,49 @@ TestRegistry.registerTest('SQLite Scanner (sqlite_scanner)', 'SQLite scanner: AT
   }
 })
 
+TestRegistry.registerTest('SQLite Scanner (sqlite_scanner)', 'SQLite scanner: linked SQLite keeps FTS + JSON features', async () => {
+  // Guards a regression from the spatial build: when spatial is also linked,
+  // the scanner's bundled SQLite is replaced by the vcpkg-built copy (see
+  // scripts/build-spatial-deps.sh), which must be compiled with the scanner's
+  // feature set — otherwise attached databases containing FTS virtual tables
+  // fail with "no such module" and SQLite JSON functions disappear.
+  const suffix = Date.now()
+  const dbName = `test_sqlite_feat_${suffix}.db`
+  const sqliteName = `test_features_${suffix}.sqlite`
+
+  const db = HybridDuckDB.open(dbName, {})
+  try {
+    const dbListResult = db.executeSync('PRAGMA database_list')
+    const dbPath = dbListResult.toRows()[0].file as string
+    const dbDir = dbPath.substring(0, dbPath.lastIndexOf('/'))
+    const sqlitePath = `${dbDir}/${sqliteName}`
+
+    // Create a real SQLite file, then read the linked SQLite library's
+    // compile options through it
+    db.executeSync(`ATTACH '${sqlitePath}' AS sqlitedb (TYPE SQLITE)`)
+    db.executeSync('CREATE TABLE sqlitedb.probe (id INTEGER)')
+    db.executeSync('DETACH sqlitedb')
+
+    const result = db.executeSync(
+      `SELECT CAST(compile_options AS VARCHAR) AS opt FROM sqlite_scan('${sqlitePath}', 'pragma_compile_options')`
+    )
+    const opts = result.toRows().map((r) => String(r.opt))
+    if (opts.length === 0) throw new Error('pragma_compile_options returned no rows')
+
+    for (const required of ['ENABLE_FTS5', 'ENABLE_FTS4', 'ENABLE_RTREE']) {
+      if (!opts.includes(required))
+        throw new Error(`Linked SQLite is missing ${required} (options: ${opts.join(', ')})`)
+    }
+    if (opts.includes('OMIT_JSON'))
+      throw new Error('Linked SQLite was built with OMIT_JSON — JSON functions unavailable')
+
+    console.debug(`SQLite compile options OK (${opts.length} options, FTS5/FTS4/RTREE present, JSON not omitted)`)
+  } finally {
+    db.close()
+    HybridDuckDB.deleteDatabase(dbName)
+  }
+})
+
 TestRegistry.registerTest('Extensions', 'duckdb_extensions: verify loaded extensions', async () => {
   // Use a file-based DB to ensure home_directory is set (required by duckdb_extensions())
   const suffix = Date.now()

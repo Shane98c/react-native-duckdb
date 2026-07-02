@@ -17,7 +17,7 @@ duckdb/extension/extension_config_local.cmake
 package/DuckDB.xcframework/
 package/.duckdb-extensions.json
 
-# Cross-compiled dependencies (OpenSSL, libcurl for httpfs)
+# Cross-compiled dependencies (OpenSSL/libcurl for httpfs, vcpkg deps for spatial)
 vendor/
 
 # iOS

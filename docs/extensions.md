@@ -54,6 +54,7 @@ No extensions are included by default. You must explicitly list every extension 
 | `httpfs` | Remote file access over HTTPS | `SELECT * FROM 'https://url/data.parquet'` |
 | `fts` | BM25 full-text search with 27 language stemmers | `PRAGMA create_fts_index(...)` |
 | `vss` | HNSW vector similarity search | `CREATE INDEX ... USING HNSW (vec)` |
+| `spatial` | Geospatial types and functions (GEOS, PROJ, GDAL) | `GEOMETRY` columns, `ST_*` functions, `ST_Read(...)` |
 | `autocomplete` | SQL autocomplete suggestions | Editor integrations |
 | `tpch` | TPC-H benchmark data generator | Benchmarking |
 | `tpcds` | TPC-DS benchmark data generator | Benchmarking |
@@ -379,6 +380,79 @@ const plan = db.executeSync(`
 ### Binary Size
 
 Minimal — header-only C++ (usearch + simsimd vendored). No external dependencies.
+
+---
+
+## Geospatial (spatial)
+
+Geospatial support: a `GEOMETRY` column type, 100+ `ST_*` functions (backed by GEOS), coordinate reprojection (PROJ), and reading/writing geospatial file formats like GeoJSON, Shapefile, and GeoPackage (GDAL).
+
+### Setup
+
+Add `spatial` to your extensions, then load it at runtime:
+
+```ts
+db.executeSync("LOAD 'spatial'")
+```
+
+The first build takes a while: the native dependencies (GDAL, PROJ, GEOS, and friends) are cross-compiled via [vcpkg](https://vcpkg.io) into `vendor/spatial/` and cached for subsequent builds.
+
+### Geometry Basics
+
+```ts
+db.executeSync('CREATE TABLE places (name VARCHAR, geom GEOMETRY)')
+db.executeSync("INSERT INTO places VALUES ('office', ST_Point(11.087, 47.263))")
+
+// WKT in and out
+db.executeSync(`SELECT ST_AsText(geom) FROM places`)
+db.executeSync(`SELECT ST_GeomFromText('POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))')`)
+```
+
+### Spatial Queries
+
+```ts
+// Point-in-polygon join
+const result = db.executeSync(`
+  SELECT p.name, r.region_name
+  FROM places p JOIN regions r ON ST_Within(p.geom, r.geom)
+`)
+
+// Distance, area, buffers (GEOS)
+db.executeSync('SELECT ST_Distance(a.geom, b.geom) FROM places a, places b')
+db.executeSync('SELECT ST_Area(ST_Buffer(geom, 0.01)) FROM regions')
+```
+
+### Coordinate Transforms
+
+`ST_Transform` reprojects between coordinate reference systems. The PROJ CRS database (proj.db) is **embedded in the binary**, so transforms work fully offline:
+
+```ts
+// WGS84 (lat/lon) → Web Mercator. EPSG:4326 axis order is lat/lon.
+db.executeSync(`
+  SELECT ST_Transform(ST_Point(52.52, 13.405), 'EPSG:4326', 'EPSG:3857')
+`)
+```
+
+### Reading and Writing Files (GDAL)
+
+```ts
+// Read any GDAL-supported vector format
+const features = db.executeSync(`SELECT * FROM ST_Read('${dir}/data.geojson')`)
+
+// Write via GDAL drivers
+db.executeSync(`COPY places TO '${dir}/out.geojson' WITH (FORMAT GDAL, DRIVER 'GeoJSON')`)
+```
+
+Use absolute paths (see [File Paths on Mobile](#file-paths-on-mobile)).
+
+### Limitations
+
+- **No network functions** — `ST_Read` over HTTP and other network-backed GDAL features are disabled on mobile (matching upstream's iOS/Android builds). Read local files instead.
+- **Android: 64-bit only** — like httpfs, spatial is skipped on `armeabi-v7a` and `x86`.
+
+### Binary Size
+
+The largest extension: GDAL + PROJ + GEOS plus the embedded proj.db add ~24 MB installed per architecture, ~8 MB to the compressed store download (measured on Android arm64). Include it only if you need it.
 
 ---
 

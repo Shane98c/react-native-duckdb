@@ -29,7 +29,7 @@
   },
   "react-native-duckdb": {
     "build": {
-      "extensions": ["core_functions", "parquet", "json", "icu", "sqlite_scanner", "httpfs", "fts", "vss"]
+      "extensions": ["core_functions", "parquet", "json", "icu", "sqlite_scanner", "httpfs", "fts", "vss", "spatial"]
     }
   },
   "devDependencies": {

@@ -60,15 +60,24 @@ Pod::Spec.new do |s|
     "nitrogen/generated/ios/c++/**/*.{h,hpp}",
   ]
 
-  # When httpfs extension is included, OpenSSL and libcurl are statically linked
-  # into the xcframework but still need system framework dependencies at link time.
+  # Extensions with native dependencies are statically linked into the
+  # xcframework but still need system frameworks/libraries at link time.
   ext_meta = File.join(__dir__, ".duckdb-extensions.json")
   if File.exist?(ext_meta)
     ext_info = JSON.parse(File.read(ext_meta)) rescue {}
+    frameworks = []
+    libraries = []
     if ext_info["httpfs"]
-      s.frameworks = ["Security", "SystemConfiguration"]
-      s.libraries = ["z"]
+      # OpenSSL + libcurl need Security/SystemConfiguration and system zlib
+      frameworks += ["Security", "SystemConfiguration"]
+      libraries += ["z"]
     end
+    if ext_info["spatial"]
+      # GDAL links the system iconv (vcpkg's libiconv is a stub on Apple platforms)
+      libraries += ["iconv", "z"]
+    end
+    s.frameworks = frameworks.uniq unless frameworks.empty?
+    s.libraries = libraries.uniq unless libraries.empty?
   end
 
   install_modules_dependencies(s)
