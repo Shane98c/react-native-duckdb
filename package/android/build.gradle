@@ -75,6 +75,8 @@ android {
           "-DDUCKDB_EXTENSIONS=${duckdbExtensions}",
           "-DANDROID_NDK_FOR_HTTPFS=${android.ndkDirectory}"
         abiFilters (*reactNativeArchitectures())
+        // Only build RNDuckDB — otherwise AGP also builds and packages DuckDB's unused libduckdb.so
+        targets "RNDuckDB"
       }
     }
   }

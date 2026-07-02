@@ -53,13 +53,10 @@ if(EXISTS "${EXT_CONFIG_PATH}")
       message(WARNING "react-native-duckdb: httpfs skipped for ${ANDROID_ABI} (32-bit not supported). httpfs requires 64-bit ABIs (arm64-v8a, x86_64).")
       # Strip httpfs from extension config so DuckDB doesn't try to build it.
       # Safe because configure-extensions.js regenerates this file each CMake invocation.
-      file(STRINGS "${EXT_CONFIG_PATH}" _ext_lines)
-      file(WRITE "${EXT_CONFIG_PATH}" "")
-      foreach(_line IN LISTS _ext_lines)
-        if(NOT _line MATCHES "duckdb_extension_load\\(httpfs")
-          file(APPEND "${EXT_CONFIG_PATH}" "${_line}\n")
-        endif()
-      endforeach()
+      # (Regex instead of a file(STRINGS) loop: STRINGS splits lines containing
+      # semicolons, e.g. set(SKIP_EXTENSIONS "a;b"), corrupting the file.)
+      string(REGEX REPLACE "duckdb_extension_load\\(httpfs[^\n]*\\)\n?" "" _ext_config_content "${_ext_config_content}")
+      file(WRITE "${EXT_CONFIG_PATH}" "${_ext_config_content}")
     else()
       message(STATUS "react-native-duckdb: httpfs detected, building OpenSSL + libcurl for ${ANDROID_ABI}")
 
@@ -141,6 +138,15 @@ set_target_properties(
   CXX_STANDARD ${CMAKE_CXX_STANDARD}
   CXX_EXTENSIONS OFF
   POSITION_INDEPENDENT_CODE ON
+)
+
+# Size: hide all static-archive symbols from the dynamic table (JNI_OnLoad
+# lives in our own object files, so it stays exported) and drop unreferenced
+# sections. Cuts several MB of .dynsym/.dynstr/relocs and lets the linker
+# garbage-collect unused DuckDB/GDAL/GEOS code.
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
+  -Wl,--exclude-libs,ALL
+  -Wl,--gc-sections
 )
 
 find_package(ReactAndroid REQUIRED CONFIG)

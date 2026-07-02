@@ -15,6 +15,7 @@ duckdb/build-*/
 duckdb/.extensions-configured
 duckdb/extension/extension_config_local.cmake
 package/DuckDB.xcframework/
+package/.duckdb-extensions.json
 
 # Cross-compiled dependencies (OpenSSL, libcurl for httpfs)
 vendor/
