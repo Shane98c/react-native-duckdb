@@ -189,6 +189,20 @@ function main() {
       if (config && config.build && Array.isArray(config.build.extensions)) {
         extensions = config.build.extensions;
       }
+      // Discovery that resolves to a workspace inside this package's own repo
+      // (e.g. example/) is expected when building the bundled example, but for
+      // an external app it means the app's config was NOT found.
+      const repoRoot = path.resolve(scriptDir, '..');
+      const consumerPath = path.resolve(consumer.path);
+      if (consumerPath.startsWith(repoRoot + path.sep)) {
+        console.warn(
+          `⚠️  react-native-duckdb: extension config resolved from ` +
+            `${path.relative(repoRoot, consumerPath)} inside the package repo itself. ` +
+            `Expected when building the bundled example app; if you are building an ` +
+            `external app, its config was NOT found — set extensions in the app's ` +
+            `package.json/app config, or pass --app-root.`
+        );
+      }
     }
   }
 
