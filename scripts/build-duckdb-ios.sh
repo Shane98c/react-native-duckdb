@@ -17,9 +17,14 @@ echo "=== react-native-duckdb: Building DuckDB for iOS (min=${MIN_IOS}, jobs=${J
 # Step 1: Configure extensions
 echo "--- Configuring extensions ---"
 
-# Try to read extensions from Podfile.properties.json (Expo managed workflow)
+# Try to read extensions from Podfile.properties.json (Expo managed workflow).
+# RNDUCKDB_APP_IOS_DIR (the app's Podfile directory, passed by the podspec) is
+# checked first: the REPO_DIR-relative probes assume the package sits inside
+# the app tree, which is false for a file:/sibling checkout — node_modules
+# symlinks resolve to the physical package dir, so relative paths can't reach
+# the app from here.
 EXTENSIONS_FROM_PROPS=""
-for CANDIDATE in "${REPO_DIR}/../ios/Podfile.properties.json" "${REPO_DIR}/../../ios/Podfile.properties.json"; do
+for CANDIDATE in "${RNDUCKDB_APP_IOS_DIR:+${RNDUCKDB_APP_IOS_DIR}/Podfile.properties.json}" "${REPO_DIR}/../ios/Podfile.properties.json" "${REPO_DIR}/../../ios/Podfile.properties.json"; do
   if [ -f "$CANDIDATE" ]; then
     EXTENSIONS_FROM_PROPS=$(node -e "
       const p = JSON.parse(require('fs').readFileSync('$CANDIDATE', 'utf8'));
@@ -31,6 +36,10 @@ done
 
 if [ -n "$EXTENSIONS_FROM_PROPS" ]; then
   node "${SCRIPT_DIR}/configure-extensions.js" --duckdb-path "${DUCKDB_DIR}" --extensions "${EXTENSIONS_FROM_PROPS}"
+elif [ -n "${RNDUCKDB_APP_IOS_DIR:-}" ]; then
+  # Bare workflow: anchor package.json discovery at the app, not at cwd
+  # (during prepare_command, cwd is inside the package checkout)
+  node "${SCRIPT_DIR}/configure-extensions.js" --duckdb-path "${DUCKDB_DIR}" --app-root "${RNDUCKDB_APP_IOS_DIR}/.."
 else
   node "${SCRIPT_DIR}/configure-extensions.js" --duckdb-path "${DUCKDB_DIR}"
 fi
